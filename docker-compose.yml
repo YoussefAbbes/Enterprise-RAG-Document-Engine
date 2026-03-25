@@ -1,0 +1,189 @@
+# =============================================================================
+# Enterprise RAG Document Engine - Docker Compose Configuration
+# =============================================================================
+# Architecture Overview:
+# - Qdrant: Vector database for semantic search over document embeddings
+# - MinIO: S3-compatible object storage for raw PDF documents
+# - PostgreSQL: Relational DB for users, document metadata, and chat history
+# - FastAPI: Python backend orchestrating RAG pipeline with LangChain
+#
+# Design Decisions:
+# 1. All services on a dedicated bridge network for isolation and DNS resolution
+# 2. Named volumes for data persistence across container restarts
+# 3. Health checks ensure dependent services wait for readiness
+# 4. Environment variables externalized to .env for security
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Qdrant - Vector Database
+  # ---------------------------------------------------------------------------
+  # Why Qdrant?
+  # - Native support for filtering during vector search (critical for multi-tenant RAG)
+  # - Efficient HNSW indexing for fast approximate nearest neighbor search
+  # - Built-in support for payloads (metadata) attached to vectors
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    container_name: rag-qdrant
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"      # REST API
+      - "${QDRANT_GRPC_PORT:-6334}:6334" # gRPC (faster for bulk operations)
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__SERVICE__HTTP_PORT=6333
+    networks:
+      - rag-network
+
+  # ---------------------------------------------------------------------------
+  # MinIO - S3-Compatible Object Storage
+  # ---------------------------------------------------------------------------
+  # Why MinIO?
+  # - Drop-in S3 replacement for local development and on-prem deployment
+  # - Stores raw PDF files, decoupling storage from processing
+  # - Enables horizontal scaling of document storage independent of compute
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    container_name: rag-minio
+    restart: unless-stopped
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"     # S3 API
+      - "${MINIO_CONSOLE_PORT:-9001}:9001" # Web console
+    volumes:
+      - minio_data:/data
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin123}
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-network
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - Relational Database
+  # ---------------------------------------------------------------------------
+  # Why PostgreSQL?
+  # - ACID compliance for user data and chat history integrity
+  # - JSON/JSONB support for flexible metadata storage
+  # - Mature ecosystem with excellent Python async drivers (asyncpg)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: rag-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-raguser}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-ragpassword123}
+      - POSTGRES_DB=${POSTGRES_DB:-ragengine}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-ragengine}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-network
+
+  # ---------------------------------------------------------------------------
+  # FastAPI Backend - RAG Orchestration Layer
+  # ---------------------------------------------------------------------------
+  # Why FastAPI?
+  # - Native async support for concurrent document processing
+  # - Automatic OpenAPI documentation for API consumers
+  # - Pydantic integration for request/response validation
+  # - Excellent performance with uvicorn/gunicorn
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rag-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      # Mount source code for hot-reload during development
+      - ./backend/app:/app/app:ro
+    environment:
+      # Database Configuration
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword123}@postgres:5432/${POSTGRES_DB:-ragengine}
+
+      # MinIO Configuration
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin123}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-documents}
+      - MINIO_SECURE=false
+
+      # Qdrant Configuration
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      - QDRANT_COLLECTION_NAME=${QDRANT_COLLECTION_NAME:-documents}
+
+      # Embedding Model Configuration
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-384}
+
+      # LLM Configuration (for future chat functionality)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4-turbo-preview}
+
+      # Application Settings
+      - DEBUG=${DEBUG:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - rag-network
+
+# =============================================================================
+# Networks
+# =============================================================================
+# Isolated bridge network enables:
+# - Service discovery via container names (e.g., "postgres" resolves to its IP)
+# - Network isolation from host and other Docker networks
+# - Simplified firewall rules for production deployment
+# =============================================================================
+networks:
+  rag-network:
+    driver: bridge
+    name: rag-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+# Named volumes for data persistence:
+# - Survive container rebuilds and restarts
+# - Can be backed up independently
+# - Easy to migrate between hosts
+# =============================================================================
+volumes:
+  qdrant_data:
+    name: rag-qdrant-data
+  minio_data:
+    name: rag-minio-data
+  postgres_data:
+    name: rag-postgres-data
