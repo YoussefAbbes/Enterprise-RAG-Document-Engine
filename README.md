@@ -1,4 +1,4 @@
-# Enterprise RAG Document Engine
+# Synapse : Enterprise RAG Document Engine
 
 A production-ready **Retrieval-Augmented Generation (RAG)** system for uploading, processing, and conversing with PDF documents using advanced AI models. Built for scalability, performance, and ease of deployment.
 
