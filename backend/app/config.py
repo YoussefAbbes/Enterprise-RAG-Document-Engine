@@ -111,6 +111,10 @@ class Settings(BaseSettings):
         default=None,
         description="OpenAI API key for chat functionality",
     )
+    openai_base_url: Optional[str] = Field(
+        default=None,
+        description="Custom base URL for OpenAI-compatible APIs (e.g., OpenRouter)",
+    )
     gemini_api_key: Optional[str] = Field(
         default=None,
         description="Google Gemini API key for chat functionality",

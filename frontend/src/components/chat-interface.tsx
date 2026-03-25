@@ -108,15 +108,17 @@ export function ChatInterface({ documentIds }: ChatInterfaceProps) {
   }
 
   return (
-    <Card className="flex flex-col h-[700px] shadow-lg">
-      <CardHeader className="border-b bg-gradient-to-r from-primary/5 to-primary/10">
+    <Card className="flex flex-col h-[700px] shadow-2xl border-2 overflow-hidden">
+      <CardHeader className="border-b bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50">
         <CardTitle className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-lg">
-            <Sparkles className="h-5 w-5 text-primary" />
-            Chat with Your Documents
+          <div className="flex items-center gap-3 text-lg">
+            <div className="bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl p-2 shadow-lg shadow-blue-500/30">
+              <Sparkles className="h-5 w-5 text-white" />
+            </div>
+            <span className="font-bold gradient-text">Chat with Your Documents</span>
           </div>
           {documentIds && documentIds.length > 0 && (
-            <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-1 rounded-full">
+            <span className="text-xs font-semibold text-muted-foreground bg-white px-3 py-1.5 rounded-full border shadow-sm">
               {documentIds.length} doc{documentIds.length > 1 ? "s" : ""} loaded
             </span>
           )}
@@ -125,57 +127,67 @@ export function ChatInterface({ documentIds }: ChatInterfaceProps) {
 
       <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gradient-to-br from-slate-50/50 to-blue-50/30">
           {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground p-8">
-              <div className="bg-primary/10 rounded-full p-4 mb-4">
-                <FileText className="h-10 w-10 text-primary" />
+            <div className="h-full flex flex-col items-center justify-center text-center p-8 animate-fadeIn">
+              <div className="relative mb-6">
+                <div className="absolute inset-0 bg-primary/10 rounded-full blur-2xl" />
+                <div className="bg-gradient-to-br from-blue-100 to-purple-100 rounded-full p-6 shadow-xl border-2 border-white relative z-10">
+                  <FileText className="h-14 w-14 text-primary" />
+                </div>
               </div>
-              <p className="text-lg font-medium mb-2">Ready to chat!</p>
-              <p className="text-sm max-w-md">
+              <h3 className="text-2xl font-bold mb-3 gradient-text">Ready to chat!</h3>
+              <p className="text-base text-muted-foreground max-w-md leading-relaxed mb-8">
                 Upload a document first, then ask questions about it.
                 The AI will find relevant information and provide structured answers.
               </p>
-              <div className="mt-6 grid grid-cols-1 gap-2 text-left w-full max-w-sm">
-                <p className="text-xs text-muted-foreground mb-1">Try asking:</p>
+              <div className="w-full max-w-md space-y-3">
+                <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-3">Try asking:</p>
                 <button
                   onClick={() => setInput("What are the main topics in this document?")}
-                  className="text-sm text-left px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 transition-colors"
+                  className="w-full text-sm text-left px-5 py-4 rounded-xl bg-white hover:bg-primary/5 border-2 border-transparent hover:border-primary/20 transition-all duration-300 shadow-sm hover:shadow-md group"
                 >
-                  "What are the main topics in this document?"
+                  <span className="flex items-center gap-3">
+                    <span className="text-primary">❯</span>
+                    <span className="group-hover:text-primary transition-colors duration-300">"What are the main topics in this document?"</span>
+                  </span>
                 </button>
                 <button
                   onClick={() => setInput("Summarize the key points")}
-                  className="text-sm text-left px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 transition-colors"
+                  className="w-full text-sm text-left px-5 py-4 rounded-xl bg-white hover:bg-primary/5 border-2 border-transparent hover:border-primary/20 transition-all duration-300 shadow-sm hover:shadow-md group"
                 >
-                  "Summarize the key points"
+                  <span className="flex items-center gap-3">
+                    <span className="text-primary">❯</span>
+                    <span className="group-hover:text-primary transition-colors duration-300">"Summarize the key points"</span>
+                  </span>
                 </button>
               </div>
             </div>
           ) : (
-            messages.map((message) => (
+            messages.map((message, index) => (
               <div
                 key={message.id}
                 className={cn(
-                  "flex gap-3",
+                  "flex gap-4 animate-slideIn",
                   message.role === "user" ? "justify-end" : "justify-start"
                 )}
+                style={{ animationDelay: `${index * 50}ms` }}
               >
                 {message.role === "assistant" && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-sm">
-                    <Bot className="h-4 w-4 text-primary-foreground" />
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/30 border-2 border-white">
+                    <Bot className="h-5 w-5 text-white" />
                   </div>
                 )}
                 <div
                   className={cn(
-                    "max-w-[85%] rounded-xl shadow-sm",
+                    "max-w-[85%] rounded-2xl shadow-lg transition-all duration-300 hover:shadow-xl",
                     message.role === "user"
-                      ? "bg-primary text-primary-foreground px-4 py-3"
-                      : "bg-card border px-4 py-3"
+                      ? "bg-gradient-to-br from-blue-600 to-blue-700 text-white px-5 py-4 border-2 border-blue-500"
+                      : "bg-white border-2 border-slate-200 px-5 py-4"
                   )}
                 >
                   {message.role === "user" ? (
-                    <p className="text-sm">{message.content}</p>
+                    <p className="text-sm leading-relaxed font-medium">{message.content}</p>
                   ) : (
                     <div className="prose prose-sm dark:prose-invert max-w-none">
                       <ReactMarkdown
@@ -251,28 +263,28 @@ export function ChatInterface({ documentIds }: ChatInterfaceProps) {
 
                   {/* Sources and model info */}
                   {message.sources && message.sources.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-border/50">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-                        <Info className="h-3 w-3" />
+                    <div className="mt-4 pt-4 border-t border-slate-200">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3 font-semibold">
+                        <Info className="h-3.5 w-3.5" />
                         <span>{message.sources.length} sources found</span>
                         {message.model && (
                           <>
                             <span>•</span>
-                            <span>Model: {message.model}</span>
+                            <span className="bg-slate-100 px-2 py-0.5 rounded">Model: {message.model}</span>
                           </>
                         )}
                       </div>
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex flex-wrap gap-2">
                         {message.sources.slice(0, 3).map((source, i) => (
                           <span
                             key={i}
-                            className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full"
+                            className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-medium border border-blue-200 shadow-sm"
                           >
                             Source {i + 1}: {source.relevance}%
                           </span>
                         ))}
                         {message.sources.length > 3 && (
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs text-muted-foreground bg-slate-100 px-3 py-1.5 rounded-lg font-medium border">
                             +{message.sources.length - 3} more
                           </span>
                         )}
@@ -281,22 +293,22 @@ export function ChatInterface({ documentIds }: ChatInterfaceProps) {
                   )}
                 </div>
                 {message.role === "user" && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-slate-600 to-slate-800 flex items-center justify-center shadow-sm">
-                    <User className="h-4 w-4 text-white" />
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-slate-600 to-slate-800 flex items-center justify-center shadow-lg shadow-slate-500/30 border-2 border-white">
+                    <User className="h-5 w-5 text-white" />
                   </div>
                 )}
               </div>
             ))
           )}
           {loading && (
-            <div className="flex gap-3">
-              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-sm">
-                <Bot className="h-4 w-4 text-primary-foreground" />
+            <div className="flex gap-4 animate-fadeIn">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/30 border-2 border-white">
+                <Bot className="h-5 w-5 text-white" />
               </div>
-              <div className="bg-card border rounded-xl p-4 shadow-sm">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Searching documents and generating response...</span>
+              <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 shadow-lg max-w-[85%]">
+                <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  <span className="font-medium">Searching documents and generating response...</span>
                 </div>
               </div>
             </div>
@@ -305,30 +317,31 @@ export function ChatInterface({ documentIds }: ChatInterfaceProps) {
         </div>
 
         {/* Input Area */}
-        <div className="border-t bg-muted/30 p-4">
+        <div className="border-t bg-gradient-to-r from-slate-50 to-blue-50/30 p-5">
           <form onSubmit={handleSubmit} className="flex gap-3">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask a question about your documents..."
-              className="flex-1 px-4 py-3 border rounded-xl bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+              className="flex-1 px-5 py-4 border-2 rounded-2xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-300 shadow-sm font-medium placeholder:text-muted-foreground/60"
               disabled={loading}
             />
             <Button
               type="submit"
               disabled={loading || !input.trim()}
-              className="px-6 rounded-xl"
+              className="px-8 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 relative overflow-hidden group disabled:opacity-50"
             >
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-0 group-hover:opacity-100 group-hover:translate-x-full transition-all duration-700 -translate-x-full" />
               {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-5 w-5 animate-spin relative z-10" />
               ) : (
-                <Send className="h-4 w-4" />
+                <Send className="h-5 w-5 relative z-10" />
               )}
             </Button>
           </form>
-          <p className="text-xs text-muted-foreground mt-2 text-center">
-            Responses are generated from your uploaded documents
+          <p className="text-xs text-muted-foreground mt-3 text-center font-medium">
+            Responses are generated from your uploaded documents using AI
           </p>
         </div>
       </CardContent>

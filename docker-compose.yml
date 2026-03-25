@@ -1,5 +1,5 @@
 # =============================================================================
-# Enterprise RAG Document Engine - Docker Compose Configuration
+# Synapse - Docker Compose Configuration
 # =============================================================================
 # Architecture Overview:
 # - Qdrant: Vector database for semantic search over document embeddings
@@ -25,7 +25,7 @@ services:
   # ---------------------------------------------------------------------------
   qdrant:
     image: qdrant/qdrant:v1.12.1
-    container_name: rag-qdrant
+    container_name: synapse-qdrant
     restart: unless-stopped
     ports:
       - "${QDRANT_PORT:-6333}:6333"      # REST API
@@ -36,7 +36,7 @@ services:
       - QDRANT__SERVICE__GRPC_PORT=6334
       - QDRANT__SERVICE__HTTP_PORT=6333
     networks:
-      - rag-network
+      - synapse-network
 
   # ---------------------------------------------------------------------------
   # MinIO - S3-Compatible Object Storage
@@ -48,7 +48,7 @@ services:
   # ---------------------------------------------------------------------------
   minio:
     image: minio/minio:RELEASE.2024-01-16T16-07-38Z
-    container_name: rag-minio
+    container_name: synapse-minio
     restart: unless-stopped
     ports:
       - "${MINIO_API_PORT:-9000}:9000"     # S3 API
@@ -65,7 +65,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - rag-network
+      - synapse-network
 
   # ---------------------------------------------------------------------------
   # PostgreSQL - Relational Database
@@ -77,7 +77,7 @@ services:
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
-    container_name: rag-postgres
+    container_name: synapse-postgres
     restart: unless-stopped
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -85,16 +85,16 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-raguser}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-ragpassword123}
-      - POSTGRES_DB=${POSTGRES_DB:-ragengine}
+      - POSTGRES_USER=${POSTGRES_USER:-synapseuser}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-synapsepass123}
+      - POSTGRES_DB=${POSTGRES_DB:-synapsedb}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-ragengine}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-synapseuser} -d ${POSTGRES_DB:-synapsedb}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - rag-network
+      - synapse-network
 
   # ---------------------------------------------------------------------------
   # FastAPI Backend - RAG Orchestration Layer
@@ -109,7 +109,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: rag-backend
+    container_name: synapse-backend
     restart: unless-stopped
     ports:
       - "${BACKEND_PORT:-8000}:8000"
@@ -122,7 +122,7 @@ services:
       # HuggingFace cache directory (pre-download models once, reuse across restarts)
       - HF_HOME=/cache/huggingface
       # Database Configuration
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword123}@postgres:5432/${POSTGRES_DB:-ragengine}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-synapseuser}:${POSTGRES_PASSWORD:-synapsepass123}@postgres:5432/${POSTGRES_DB:-synapsedb}
 
       # MinIO Configuration
       - MINIO_ENDPOINT=minio:9000
@@ -141,8 +141,9 @@ services:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
       - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-384}
 
-      # LLM Configuration (supports OpenAI and Google Gemini)
+      # LLM Configuration (supports OpenAI, OpenRouter, and Google Gemini)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - LLM_MODEL=${LLM_MODEL:-gemini-1.5-flash}
       - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
@@ -163,7 +164,7 @@ services:
       timeout: 10s
       retries: 3
     networks:
-      - rag-network
+      - synapse-network
 
 # =============================================================================
 # Networks
@@ -174,9 +175,9 @@ services:
 # - Simplified firewall rules for production deployment
 # =============================================================================
 networks:
-  rag-network:
+  synapse-network:
     driver: bridge
-    name: rag-network
+    name: synapse-network
 
 # =============================================================================
 # Volumes
@@ -188,10 +189,10 @@ networks:
 # =============================================================================
 volumes:
   qdrant_data:
-    name: rag-qdrant-data
+    name: synapse-qdrant-data
   minio_data:
-    name: rag-minio-data
+    name: synapse-minio-data
   postgres_data:
-    name: rag-postgres-data
+    name: synapse-postgres-data
   huggingface_cache:
-    name: rag-huggingface-cache
+    name: synapse-huggingface-cache

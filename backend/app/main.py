@@ -570,11 +570,13 @@ Please provide a well-structured answer using markdown formatting."""
             model_used = "fallback (Gemini error)"
 
     elif openai_key:
-        # Use OpenAI for structured response
+        # Use OpenAI (or OpenRouter) for structured response
         try:
             from openai import OpenAI
 
-            client = OpenAI(api_key=openai_key)
+            # Support custom base URL for OpenRouter
+            base_url = getattr(settings, 'openai_base_url', None)
+            client = OpenAI(api_key=openai_key, base_url=base_url) if base_url else OpenAI(api_key=openai_key)
 
             response = client.chat.completions.create(
                 model=settings.llm_model,

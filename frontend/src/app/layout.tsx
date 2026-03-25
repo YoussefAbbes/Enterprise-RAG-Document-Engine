@@ -5,7 +5,7 @@ import "./globals.css"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "RAG Document Engine",
+  title: "Synapse",
   description: "Upload PDFs, process them into vectors, and chat with your documents",
 }
 
