@@ -111,9 +111,17 @@ class Settings(BaseSettings):
         default=None,
         description="OpenAI API key for chat functionality",
     )
+    gemini_api_key: Optional[str] = Field(
+        default=None,
+        description="Google Gemini API key for chat functionality",
+    )
     llm_model: str = Field(
-        default="gpt-4-turbo-preview",
+        default="gemini-1.5-flash",
         description="LLM model for RAG responses",
+    )
+    llm_provider: str = Field(
+        default="gemini",
+        description="LLM provider: 'openai' or 'gemini'",
     )
 
     # -------------------------------------------------------------------------

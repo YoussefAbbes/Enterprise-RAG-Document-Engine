@@ -177,6 +177,63 @@ class SearchResponse(BaseModel):
     total: int
 
 
+class ProcessRequest(BaseModel):
+    """Request model for document processing."""
+
+    minio_path: str
+    user_id: str = "00000000-0000-0000-0000-000000000001"
+
+
+class ProcessResponse(BaseModel):
+    """Response after document processing."""
+
+    document_id: str
+    filename: str
+    status: str
+    page_count: int
+    chunk_count: int
+    vector_count: int
+    message: str
+
+
+class DocumentInfo(BaseModel):
+    """Document information model."""
+
+    document_id: str
+    filename: str
+    file_size: int
+    minio_path: str
+    status: str
+    page_count: int | None = None
+    chunk_count: int | None = None
+
+
+class ChatRequest(BaseModel):
+    """Request model for RAG chat."""
+
+    question: str
+    document_ids: list[str] | None = None
+    limit: int = 5
+
+
+class Source(BaseModel):
+    """Source reference for chat response."""
+
+    text: str
+    document_id: str
+    chunk_index: int
+    relevance: float
+
+
+class ChatResponse(BaseModel):
+    """Response model for RAG chat."""
+
+    question: str
+    answer: str
+    sources: list[Source]
+    model: str
+
+
 # =============================================================================
 # Health Check Endpoints
 # =============================================================================
@@ -402,19 +459,190 @@ async def search_documents(
 
 
 # =============================================================================
+# RAG Chat Endpoint (LLM-powered)
+# =============================================================================
+
+
+@app.post(
+    "/api/v1/chat",
+    response_model=ChatResponse,
+    tags=["Chat"],
+)
+async def chat_with_documents(
+    request: ChatRequest,
+    qdrant: QdrantClientWrapper = Depends(get_qdrant_client),
+) -> ChatResponse:
+    """
+    Chat with your documents using RAG (Retrieval-Augmented Generation).
+
+    This endpoint:
+    1. Searches for relevant document chunks
+    2. Sends the context + question to an LLM
+    3. Returns a structured, formatted answer
+
+    Supports OpenAI GPT models. Set OPENAI_API_KEY in environment.
+    """
+    from app.services.ingestion import DocumentIngestionPipeline
+    import os
+
+    # Embed the query
+    pipeline = DocumentIngestionPipeline()
+    query_embedding = pipeline.embed_texts([request.question])[0]
+
+    # Parse document IDs
+    document_ids = None
+    if request.document_ids:
+        from uuid import UUID
+        document_ids = [UUID(doc_id) for doc_id in request.document_ids]
+
+    # Search Qdrant for relevant chunks
+    results = await qdrant.search(
+        query_vector=query_embedding,
+        document_ids=document_ids,
+        limit=request.limit,
+    )
+
+    # Prepare sources
+    sources = [
+        Source(
+            text=r["payload"].get("text", "")[:500],
+            document_id=r["payload"].get("document_id", ""),
+            chunk_index=r["payload"].get("chunk_index", 0),
+            relevance=round(r["score"] * 100, 1),
+        )
+        for r in results
+    ]
+
+    if not results:
+        return ChatResponse(
+            question=request.question,
+            answer="I couldn't find any relevant information in the uploaded documents. Please make sure you have uploaded and processed some documents first.",
+            sources=[],
+            model="none",
+        )
+
+    # Build context from search results
+    context_parts = []
+    for i, r in enumerate(results):
+        text = r["payload"].get("text", "")
+        context_parts.append(f"[Source {i+1}]\n{text}")
+
+    context = "\n\n".join(context_parts)
+
+    # Check which LLM provider to use
+    gemini_key = settings.gemini_api_key
+    openai_key = settings.openai_api_key
+
+    system_prompt = """You are a helpful assistant that answers questions based on the provided document context.
+
+Rules:
+- Only use information from the provided context
+- Format your answers clearly using markdown (tables, bullet points, headers)
+- If information is in a tabular format, present it as a markdown table
+- Be concise but comprehensive
+- If you can't find the answer in the context, say so
+- Always cite which source number the information came from"""
+
+    user_prompt = f"""Context from documents:
+{context}
+
+Question: {request.question}
+
+Please provide a well-structured answer using markdown formatting."""
+
+    if gemini_key:
+        # Use Google Gemini
+        try:
+            import google.generativeai as genai
+
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel(settings.llm_model)
+
+            full_prompt = f"{system_prompt}\n\n{user_prompt}"
+            response = model.generate_content(full_prompt)
+
+            answer = response.text
+            model_used = settings.llm_model
+
+        except Exception as e:
+            logger.error(f"Gemini error: {e}")
+            answer = _format_raw_results(request.question, results)
+            model_used = "fallback (Gemini error)"
+
+    elif openai_key:
+        # Use OpenAI for structured response
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=openai_key)
+
+            response = client.chat.completions.create(
+                model=settings.llm_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=1000,
+            )
+
+            answer = response.choices[0].message.content
+            model_used = settings.llm_model
+
+        except Exception as e:
+            logger.error(f"OpenAI error: {e}")
+            answer = _format_raw_results(request.question, results)
+            model_used = "fallback (OpenAI error)"
+    else:
+        # No LLM key configured
+        answer = _format_raw_results(request.question, results)
+        model_used = "none (set GEMINI_API_KEY or OPENAI_API_KEY for better responses)"
+
+    return ChatResponse(
+        question=request.question,
+        answer=answer,
+        sources=sources,
+        model=model_used,
+    )
+
+
+def _format_raw_results(question: str, results: list) -> str:
+    """Format raw search results into a readable response."""
+    answer_parts = [f"## Results for: {question}\n"]
+
+    for i, r in enumerate(results[:5]):
+        score = r["score"] * 100
+        text = r["payload"].get("text", "")
+
+        # Clean up text
+        text = text.strip()
+        if len(text) > 400:
+            text = text[:400] + "..."
+
+        answer_parts.append(f"### Source {i+1} (Relevance: {score:.1f}%)\n")
+        answer_parts.append(f"> {text}\n")
+
+    answer_parts.append("\n---\n*For better formatted answers, set your OPENAI_API_KEY in the environment.*")
+
+    return "\n".join(answer_parts)
+
+
+# =============================================================================
 # Document Processing Endpoint
 # =============================================================================
 
 
 @app.post(
     "/api/v1/documents/{document_id}/process",
+    response_model=ProcessResponse,
     tags=["Documents"],
 )
 async def process_document(
     document_id: str,
+    request: ProcessRequest,
     minio: MinIOClient = Depends(get_minio_client),
     qdrant: QdrantClientWrapper = Depends(get_qdrant_client),
-):
+) -> ProcessResponse:
     """
     Process a document through the RAG ingestion pipeline.
 
@@ -423,25 +651,154 @@ async def process_document(
     2. Extracts and chunks the text
     3. Generates embeddings
     4. Stores vectors in Qdrant
-
-    For production, consider using a background job queue (Celery, RQ, etc.)
-    for large documents to avoid request timeouts.
     """
     from app.services.ingestion import DocumentIngestionPipeline
-
-    # Note: In production, look up the document in PostgreSQL to get the
-    # MinIO path. For now, we construct it from the ID.
-    # This is a simplified implementation for Phase 1.
+    import os
 
     logger.info(f"Processing document: {document_id}")
 
-    # We would retrieve the actual path from the database
-    # For now, return a placeholder response
-    return {
-        "document_id": document_id,
-        "status": "processing",
-        "message": "Document processing initiated. Check status endpoint for updates.",
-    }
+    try:
+        # Download PDF from MinIO
+        logger.info(f"Downloading from MinIO: {request.minio_path}")
+        pdf_bytes = await minio.download_file(request.minio_path)
+
+        # Extract filename from path
+        filename = os.path.basename(request.minio_path)
+
+        # Initialize ingestion pipeline
+        pipeline = DocumentIngestionPipeline()
+
+        # Ensure collection exists
+        await qdrant.ensure_collection_exists()
+
+        # Process the document
+        result = await pipeline.ingest_document(
+            document_id=document_id,
+            pdf_bytes=pdf_bytes,
+            filename=filename,
+            user_id=request.user_id,
+        )
+
+        logger.info(f"Processing complete for {document_id}")
+
+        return ProcessResponse(
+            document_id=document_id,
+            filename=filename,
+            status="completed",
+            page_count=result["page_count"],
+            chunk_count=result["chunk_count"],
+            vector_count=len(result["vector_ids"]),
+            message=f"Successfully processed {result['chunk_count']} chunks into {len(result['vector_ids'])} vectors",
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to process document {document_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process document: {str(e)}",
+        )
+
+
+@app.post(
+    "/api/v1/documents/upload-and-process",
+    response_model=ProcessResponse,
+    tags=["Documents"],
+)
+async def upload_and_process_document(
+    file: UploadFile = File(..., description="PDF file to upload and process"),
+    user_id: str = Form(
+        default="00000000-0000-0000-0000-000000000001",
+        description="User ID",
+    ),
+    minio: MinIOClient = Depends(get_minio_client),
+    qdrant: QdrantClientWrapper = Depends(get_qdrant_client),
+) -> ProcessResponse:
+    """
+    Upload AND process a PDF in one step.
+
+    This is a convenience endpoint that combines:
+    1. Upload to MinIO
+    2. Process through ingestion pipeline
+    3. Store vectors in Qdrant
+
+    Perfect for testing and smaller documents.
+    """
+    import uuid
+    import io
+    from app.services.ingestion import DocumentIngestionPipeline
+
+    # Validate file type
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF files are supported",
+        )
+
+    # Generate document ID
+    document_id = str(uuid.uuid4())
+
+    # Read file content
+    content = await file.read()
+    file_size = len(content)
+
+    # Validate file size
+    max_size_bytes = settings.max_file_size_mb * 1024 * 1024
+    if file_size > max_size_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Maximum size: {settings.max_file_size_mb}MB",
+        )
+
+    # Generate storage path
+    object_key = minio.generate_object_key(
+        user_id=uuid.UUID(user_id),
+        document_id=uuid.UUID(document_id),
+        filename=file.filename,
+    )
+
+    try:
+        # Upload to MinIO
+        await minio.upload_file(
+            object_key=object_key,
+            file_data=io.BytesIO(content),
+            file_size=file_size,
+            content_type="application/pdf",
+        )
+
+        logger.info(f"Uploaded document {document_id} to {object_key}")
+
+        # Initialize ingestion pipeline
+        pipeline = DocumentIngestionPipeline()
+
+        # Ensure collection exists
+        await qdrant.ensure_collection_exists()
+
+        # Process the document
+        result = await pipeline.ingest_document(
+            document_id=document_id,
+            pdf_bytes=content,
+            filename=file.filename,
+            user_id=user_id,
+        )
+
+        logger.info(f"Processing complete for {document_id}")
+
+        return ProcessResponse(
+            document_id=document_id,
+            filename=file.filename,
+            status="completed",
+            page_count=result["page_count"],
+            chunk_count=result["chunk_count"],
+            vector_count=len(result["vector_ids"]),
+            message=f"Successfully uploaded and processed into {len(result['vector_ids'])} searchable vectors",
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to upload/process document: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process document: {str(e)}",
+        )
 
 
 # =============================================================================

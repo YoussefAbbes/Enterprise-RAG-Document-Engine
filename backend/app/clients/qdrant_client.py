@@ -196,14 +196,15 @@ class QdrantClientWrapper:
                 ]
             )
 
-        results = self.client.search(
+        # Use query_points for newer qdrant-client versions
+        results = self.client.query_points(
             collection_name=self.collection_name,
-            query_vector=query_vector,
+            query=query_vector,
             query_filter=query_filter,
             limit=limit,
             score_threshold=score_threshold,
             with_payload=True,
-        )
+        ).points
 
         return [
             {
@@ -256,13 +257,8 @@ class QdrantClientWrapper:
         info = self.client.get_collection(self.collection_name)
         return {
             "name": self.collection_name,
-            "vectors_count": info.vectors_count,
-            "points_count": info.points_count,
-            "status": info.status,
-            "config": {
-                "vector_size": info.config.params.vectors.size,
-                "distance": str(info.config.params.vectors.distance),
-            },
+            "points_count": info.points_count if hasattr(info, 'points_count') else 0,
+            "status": info.status if hasattr(info, 'status') else "unknown",
         }
 
 

@@ -24,7 +24,7 @@ services:
   # - Built-in support for payloads (metadata) attached to vectors
   # ---------------------------------------------------------------------------
   qdrant:
-    image: qdrant/qdrant:v1.7.4
+    image: qdrant/qdrant:v1.12.1
     container_name: rag-qdrant
     restart: unless-stopped
     ports:
@@ -116,7 +116,11 @@ services:
     volumes:
       # Mount source code for hot-reload during development
       - ./backend/app:/app/app:ro
+      # Cache HuggingFace models to avoid re-downloading on container restarts
+      - huggingface_cache:/cache/huggingface
     environment:
+      # HuggingFace cache directory (pre-download models once, reuse across restarts)
+      - HF_HOME=/cache/huggingface
       # Database Configuration
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword123}@postgres:5432/${POSTGRES_DB:-ragengine}
 
@@ -137,9 +141,11 @@ services:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
       - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-384}
 
-      # LLM Configuration (for future chat functionality)
+      # LLM Configuration (supports OpenAI and Google Gemini)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - LLM_MODEL=${LLM_MODEL:-gpt-4-turbo-preview}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gemini-1.5-flash}
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
 
       # Application Settings
       - DEBUG=${DEBUG:-true}
@@ -187,3 +193,5 @@ volumes:
     name: rag-minio-data
   postgres_data:
     name: rag-postgres-data
+  huggingface_cache:
+    name: rag-huggingface-cache
